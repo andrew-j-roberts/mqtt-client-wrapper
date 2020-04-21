@@ -1,0 +1,25 @@
+{
+  "name": "widget-factory-web-dashboard",
+  "version": "1.0.0",
+  "description": "command center web dashboard",
+  "main": "index.js",
+  "scripts": {
+    "dev": "parcel index.html",
+    "build": "parcel build index.html"
+  },
+  "author": "Andrew Roberts",
+  "license": "ISC",
+  "dependencies": {
+    "core-js": "^3.6.4",
+    "immer": "^6.0.1",
+    "mqtt": "^3.0.0",
+    "regenerator-runtime": "^0.13.3"
+  },
+  "devDependencies": {
+    "@babel/core": "^7.9.0",
+    "@babel/preset-env": "^7.8.7",
+    "@babel/preset-react": "^7.9.4",
+    "parcel-bundler": "^1.12.4",
+    "tailwindcss": "^1.2.0"
+  }
+}
