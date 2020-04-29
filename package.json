@@ -1,7 +1,7 @@
 {
-  "name": "widget-factory-web-dashboard",
+  "name": "mqtt-client-wrapper",
   "version": "1.0.0",
-  "description": "command center web dashboard",
+  "description": "A modestly opinionated wrapper for [MQTT.js](https://github.com/mqttjs/MQTT.js) that exposes an API for configuring message dispatch and client lifecycle event handlers.",
   "main": "index.js",
   "scripts": {
     "dev": "parcel index.html",
