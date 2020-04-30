@@ -23,8 +23,18 @@ export function createMqttClient(
   }
 ) {
   /**
-   * lifecycle event handlers
-   * https://github.com/mqttjs/MQTT.js#event-connect
+   * Private variable to store topic subscriptions and their associated handler callbacks.
+   * Messages are dispatched to all topic subscriptions that match the incoming message's topic.
+   * subscribe and unsubscribe modify this object.
+   */
+  let subscriptions = produce({}, () => {});
+
+  /**
+   * event handlers
+   *
+   * MQTT.js exposes client events, or callbacks related to the session with the broker.
+   * The methods below are sensible defaults, and can be modified using the exposed setters.
+   * Source documentation here: https://github.com/mqttjs/MQTT.js#event-connect
    */
 
   let onConnect = () => {
@@ -32,7 +42,7 @@ export function createMqttClient(
       clientId,
       username,
       time: new Date().toISOString,
-      msg: `Connected to broker`,
+      msg: `Connected`,
     };
     console.log(JSON.stringify(log));
   };
@@ -52,7 +62,7 @@ export function createMqttClient(
       clientId,
       username,
       time: new Date().toISOString,
-      msg: `Disconnected from broker`,
+      msg: `Disconnected`,
     };
     console.log(JSON.stringify(log));
   };
@@ -62,7 +72,7 @@ export function createMqttClient(
       clientId,
       username,
       time: new Date().toISOString,
-      msg: `Client is offline`,
+      msg: `Connectivity lost`,
     };
     console.log(JSON.stringify(log));
   };
@@ -82,24 +92,50 @@ export function createMqttClient(
       clientId,
       username,
       time: new Date().toISOString,
-      msg: `Client end called and no onEnd behavior is configured, disconnecting without performing any final actions`,
+      msg: `client.end was called and no onEnd behavior is configured, disconnecting without performing any final actions`,
     };
     console.log(JSON.stringify(log));
   };
 
+  // onMessage handler configured to dispatch incoming messages to
+  // the associated handlers of all matching topic subscriptions.
   const onMessage = (topic, message, packet) => {
-    // dispatch message to matching topic subscription handlers
-    for (const topicSubscription of Object.keys(subscriptionHandlers)) {
-      if (checkIfWildcardMatch(topicSubscription, topic)) {
-        subscriptionHandlers[topicSubscription](topic, message, packet);
+    for (const topicSubscription of Object.keys(subscriptions)) {
+      if (topicMatchesTopicFilter(topicSubscription, topic)) {
+        subscriptions[topicSubscription](topic, message, packet);
       }
     }
   };
 
   /**
-   * client methods
+   * event handler setters
    */
 
+  function setOnConnect(_onConnect) {
+    onConnect = _onConnect;
+  }
+
+  function setOnReconnect(_onReconnect) {
+    onReconnect = _onReconnect;
+  }
+
+  function setOnClose(_onClose) {
+    onClose = _onClose;
+  }
+
+  function setOnOffline(_onOffline) {
+    onOffline = _onOffline;
+  }
+
+  function setOnError(_onError) {
+    onError = _onError;
+  }
+
+  function setOnEnd(_onEnd) {
+    onEnd = _onEnd;
+  }
+
+  // resolve with connected client session object on connack, reject on connection error
   async function connect() {
     return new Promise((resolve, reject) => {
       client = mqtt.connect(hostUrl, {
@@ -108,22 +144,21 @@ export function createMqttClient(
         clientId,
         ...rest,
       });
-      client.on("message", onMessage);
       client.on("reconnect", onReconnect);
       client.on("close", onClose);
       client.on("offline", onOffline);
       client.on("end", onEnd);
+      client.on("message", onMessage);
       client.on("connect", (connack) => {
         onConnect();
         // resolve with mqtt.js client object enhanced with convenience functions
         resolve(
           produce({}, (draft) => {
-            // wrapper client methods
-            draft.subscribeWithHandler = subscribeWithHandler;
+            // overloaded MQTT.js Client methods
+            draft.subscribe = subscribe;
             draft.unsubscribe = unsubscribe;
             draft.publish = publish;
-            // mqtt.js client methods
-            draft.subscribe = client.subscribe;
+            // MQTT.js Client methods
             draft.end = client.end;
             draft.removeOutgoingMessage = client.removeOutgoingMessage;
             draft.reconnect = client.reconnect;
@@ -131,7 +166,7 @@ export function createMqttClient(
             draft.connected = client.connected;
             draft.reconnecting = client.reconnecting;
             draft.getLastMessageId = client.getLastMessageId;
-            // client lifecycle event handler setters (map to https://github.com/mqttjs/MQTT.js#event-connect)
+            // MQTT.js Client event handler setters
             draft.setOnConnect = setOnConnect;
             draft.setOnError = setOnError;
             draft.setOnReconnect = setOnReconnect;
@@ -148,38 +183,62 @@ export function createMqttClient(
     });
   }
 
-  async function subscribeWithHandler() {}
-
-  async function unsubscribe() {}
+  /**
+   * async wrapper around publish
+   */
+  async function publish(topic, message, options) {}
 
   /**
-   * return a client object that can be configured before connecting
+   *
+   */
+  async function subscribe(topic, options, handler) {}
+
+  /**
+   *
+   */
+  async function unsubscribe(topic) {}
+
+  /**
+   * This factory function returns an object that only exposes methods to configure and connect the client.
+   * Methods to add subscriptions (and all others) are exposed in the client the connect method resolves with.
    */
   return produce({}, (draft) => {
-    // wrapper client methods
+    // overloaded MQTT.js methods
     draft.connect = connect;
-    // client lifecycle events handler setters (map to https://github.com/mqttjs/MQTT.js#event-connect)
+    // MQTT.js Client event handler setters
     draft.setOnConnect = setOnConnect;
-    draft.setOnError = setOnError;
     draft.setOnReconnect = setOnReconnect;
-    draft.setOnOffline = setOnOffline;
-    draft.setOnEnd = setOnEnd;
     draft.setOnClose = setOnClose;
+    draft.setOnOffline = setOnOffline;
+    draft.setOnError = setOnError;
+    draft.setOnEnd = setOnEnd;
   });
 }
 
-function checkIfWildcardMatch({ wildcardTopic, topic }) {}
+/**
+ * Determine whether a topic filter matches a provided
+ * @param {string} subscriptionTopic
+ * @param {string} incomingTopic
+ */
+function topicMatchesTopicFilter(topicFilter, topic) {}
+
+/**
+ * Interpreting which topic filter attracting which
+ * Useful resource: https://regexr.com/
+ * @param {string} mqttTopicFilter
+ */
+function convertMqttTopicFilterToRegex(topicFilter) {
+  // convert single-level wildcard + to .*, or "any character, zero or more repetitions"
+  let regex = mqttTopicFilter.replace(/\+/g, ".*").replace(/\$/g, ".*");
+  // convert multi-level wildcard # to .* if it is in a valid position in the topic filter
+  if (sub.lastIndexOf("#") == sub.length - 1) {
+    regexdSub = regexdSub.substring(0, regexdSub.length - 1).concat(".*");
+  }
+}
 
 //  //Iterate over all subscriptions in the subscription map
 //  for (let sub of Array.from(Object.keys(eventHandlers))) {
-//   //Replace all * in the topic filter with a .* to make it regex compatible
-//   let _tmp = sub.replace(/\+/g, ".*");
-//   //Replace all $ in the topic filter with a .* to make it regex compatible
-//   let regexdSub = _tmp.replace(/\$/g, ".*");
-//   //if the last character is a '>', replace it with a .* to make it regex compatible
-//   if (sub.lastIndexOf("#") == sub.length - 1) {
-//     regexdSub = regexdSub.substring(0, regexdSub.length - 1).concat(".*");
-//   }
+
 //   let matchRegex = new RegExp(regexdSub);
 //   let matched = topic.match(matchRegex);
 

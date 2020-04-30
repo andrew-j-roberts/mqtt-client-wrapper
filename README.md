@@ -1,12 +1,10 @@
-# mqtt-machine README
+# mqtt-client-wrapper
 
 A modestly opinionated wrapper for [MQTT.js](https://github.com/mqttjs/MQTT.js) that exposes an API for configuring message dispatch and client lifecycle event handlers.
 
-## The problem
+## What does this wrapper offer on top of MQTT.js?
 
-## Our solution
-
-## Goals of this project
+1. Add topic subscriptions with an associated handler for all messages received on that topic
 
 ## Getting started
 
