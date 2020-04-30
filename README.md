@@ -4,7 +4,9 @@ A modestly opinionated wrapper for [MQTT.js](https://github.com/mqttjs/MQTT.js) 
 
 ## What does this wrapper offer on top of MQTT.js?
 
-1. Add topic subscriptions with an associated handler for all messages received on that topic
+1. Message dispatch
+2. Topic filter wildcard matching
+3. Verbose logging by default
 
 ## Getting started
 

@@ -43,63 +43,27 @@ export function createMqttClient(
    */
 
   let onConnect = () => {
-    const log = {
-      clientId,
-      username,
-      time: new Date().toISOString,
-      msg: `Connected`,
-    };
-    console.log(JSON.stringify(log));
+    logInfo(`Connected`);
   };
 
   let onReconnect = () => {
-    const log = {
-      clientId,
-      username,
-      time: new Date().toISOString,
-      msg: `Attempting to reconnect`,
-    };
-    console.log(JSON.stringify(log));
+    logInfo(`Reconnecting`);
   };
 
   let onClose = () => {
-    const log = {
-      clientId,
-      username,
-      time: new Date().toISOString,
-      msg: `Disconnected`,
-    };
-    console.log(JSON.stringify(log));
+    logInfo(`Disconnected`);
   };
 
   let onOffline = () => {
-    const log = {
-      clientId,
-      username,
-      time: new Date().toISOString,
-      msg: `Connectivity lost`,
-    };
-    console.log(JSON.stringify(log));
+    logInfo(`Connection lost`);
   };
 
   let onError = (error) => {
-    const errorLog = {
-      clientId,
-      username,
-      time: new Date().toISOString,
-      error: error,
-    };
-    console.error(JSON.stringify(errorLog));
+    logError(error);
   };
 
   let onEnd = (error) => {
-    const log = {
-      clientId,
-      username,
-      time: new Date().toISOString,
-      msg: `client.end was called and no onEnd behavior is configured, disconnecting without performing any final actions`,
-    };
-    console.log(JSON.stringify(log));
+    logError(error);
   };
 
   // onMessage handler configured to dispatch incoming messages to
@@ -178,6 +142,9 @@ export function createMqttClient(
             draft.setOnOffline = setOnOffline;
             draft.setOnEnd = setOnEnd;
             draft.setOnClose = setOnClose;
+            // utility functions
+            draft.logInfo = logInfo;
+            draft.logError = logError;
           })
         );
       });
@@ -196,27 +163,34 @@ export function createMqttClient(
    * @param {object} options
    */
   async function publish(topic, message, options) {
-    return new Promise((resolve, reject) => {
+    return new Promise(async (resolve, reject) => {
       // guard: prevent attempting to interact with client that does not exist
       if (!client) {
-        const errorLog = {
-          clientId,
-          username,
-          time: new Date().toISOString,
-          error: error,
-        };
-        console.error(JSON.stringify(errorLog));
+        logError(`Cannot publish, client is not connected`);
         reject();
       }
 
-      // otherwise publish message using
+      // attempt to serialize message
+      let serializedMessage;
+      try {
+        serializedMessage = await serializeMessage(message);
+      } catch {
+        logError(`Cannot publish, message serialization failed`);
+        reject();
+      }
+
+      // publish serialized message
       client.publish(
         topic,
-        publishSafeMessage,
+        serializedMessage,
         options, // options
-        function onPubAck(err) {
+        function onPubAck(error) {
           // guard: err != null indicates client is disconnecting
-          if (err) reject(err);
+          if (error) {
+            logError(error);
+            reject();
+          }
+          // no error indicates broker has received message and successfully sent back an ack
           resolve();
         }
       );
@@ -226,7 +200,36 @@ export function createMqttClient(
   /**
    *
    */
-  async function subscribe(topic, options, handler) {}
+  async function subscribe(topic, options, handler) {
+    return new Promise(async (resolve, reject) => {
+      // guard: prevent attempting to interact with client that does not exist
+      if (!client) {
+        logError(`Cannot subscribe, client is not connected`);
+        reject();
+      }
+      // guard: prevent client from attempting to add duplicate event handlers
+      if (topic in subscriptions) {
+        logError(`Cannot subscribe, already subscribed to topic ${topic}`);
+        reject();
+      }
+
+      // add event handler
+      eventHandlers = produce(eventHandlers, (draft) => {
+        draft[topic] = handler;
+      });
+
+      // subscribe to topic on client
+      client.subscribe(topic, options, function onSubAck(err, granted) {
+        // guard: err != null indicates a subscription error or an error that occurs when client is disconnecting
+        if (err) reject(err);
+        // else, subscription is verified
+        console.log(
+          `Suback received for topic "${granted[0].topic}" using QOS ${granted[0].qos}`
+        );
+        resolve();
+      });
+    });
+  }
 
   /**
    *
@@ -234,15 +237,32 @@ export function createMqttClient(
   async function unsubscribe(topic) {}
 
   /**
-   *
+   * info level logger
+   * @param {string} message
    */
-  async function logInfo(message) {}
+  function logInfo(message) {
+    const log = {
+      clientId,
+      username,
+      time: new Date().toISOString,
+      msg: message,
+    };
+    console.log(JSON.stringify(log));
+  }
 
   /**
-   *
+   * error level logger
+   * @param {string} message
    */
-  async function logError(error) {}
-
+  function logError(error) {
+    const errorLog = {
+      clientId,
+      username,
+      time: new Date().toISOString,
+      error: error,
+    };
+    console.error(JSON.stringify(errorLog));
+  }
 
   /**
    * This factory function returns an object that only exposes methods to configure and connect the client.
@@ -258,15 +278,40 @@ export function createMqttClient(
     draft.setOnOffline = setOnOffline;
     draft.setOnError = setOnError;
     draft.setOnEnd = setOnEnd;
+    // utility functions
+    draft.logInfo = logInfo;
+    draft.logError = logError;
   });
 }
 
 /**
- * Determine whether a topic filter matches a provided
+ * Return a boolean indicating whether the topic filter the topic.
  * @param {string} topicFilter
  * @param {string} topic
  */
-export function topicMatchesTopicFilter(topicFilter, topic) {}
+export function topicMatchesTopicFilter(topicFilter, topic) {
+  // convert topic filter to a regex and see if the incoming topic matches it
+  let topicFilterRegex = convertMqttTopicFilterToRegex(topicFilter);
+  let match = topic.match(topicFilterRegex);
+
+  // if the match index starts at 0, then the topic is a match with the topic filter
+  if (match && matched.index == 0) {
+    // guard: check edge case where the pattern is a match but the last character is a *
+    if (topicFilterRegex.lastIndexOf("*") == topic.length - 1) {
+      // if the number of topic sections are not equal, the match is a false positive
+      if (topicFilterRegex.split("/").length != topic.split("/").length) {
+        return false;
+      }
+    }
+    // if no edge case guards return early, this indicates the match is genuine
+    return true;
+  }
+
+  // else the match object is empty, and the topic is not a match with the topic filter
+  else {
+    return false;
+  }
+}
 
 /**
  * Convert MQTT topic filter wildcards and system symbols into regex
@@ -275,11 +320,16 @@ export function topicMatchesTopicFilter(topicFilter, topic) {}
  */
 export function convertMqttTopicFilterToRegex(topicFilter) {
   // convert single-level wildcard + to .*, or "any character, zero or more repetitions"
-  let regex = topicFilter.replace(/\+/g, ".*").replace(/\$/g, ".*");
+  let topicFilterRegex = topicFilter.replace(/\+/g, ".*").replace(/\$/g, ".*");
   // convert multi-level wildcard # to .* if it is in a valid position in the topic filter
-  if (sub.lastIndexOf("#") == sub.length - 1) {
-    regexdSub = regexdSub.substring(0, regexdSub.length - 1).concat(".*");
+  if (topicFilter.lastIndexOf("#") == topicFilter.length - 1) {
+    topicFilterRegex = topicFilterRegex
+      .substring(0, topicFilterRegex.length - 1)
+      .concat(".*");
   }
+  // convert system symbol $ to .
+
+  return topicFilterRegex;
 }
 
 /**
@@ -313,61 +363,13 @@ export function serializeMessage(message) {
       if (message === null) {
         resolve("");
       }
-    } catch (err) {
+    } catch (error) {
       /**
        * if you pass an object to this function that can't be stringified,
        * this catch block will catch and log the error
        */
+      logError(error);
       reject();
     }
   });
 }
-
-function log 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-//  //Iterate over all subscriptions in the subscription map
-//  for (let sub of Array.from(Object.keys(eventHandlers))) {
-
-//   let matchRegex = new RegExp(regexdSub);
-//   let matched = topic.match(matchRegex);
-
-//   //if the matched index starts at 0, then the topic is a match with the topic filter
-//   if (matched && matched.index == 0) {
-//     //Edge case if the pattern is a match but the last character is a *
-//     if (regexdSub.lastIndexOf("*") == sub.length - 1) {
-//       //Check if the number of topic sections are equal
-//       if (regexdSub.split("/").length != topic.split("/").length) {
-//         return;
-//       }
-//     }
-//     eventHandlers[sub]({ topic, message });
-//   } else {
-//     console.error(
-//       `Received messages on topic ${topic}, but no corresponding handler is set.`
-//     );
-//   }
-// }
