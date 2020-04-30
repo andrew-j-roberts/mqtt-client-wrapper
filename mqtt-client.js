@@ -23,6 +23,11 @@ export function createMqttClient(
   }
 ) {
   /**
+   * Private reference to the client connection object
+   */
+  let client = null;
+
+  /**
    * Private variable to store topic subscriptions and their associated handler callbacks.
    * Messages are dispatched to all topic subscriptions that match the incoming message's topic.
    * subscribe and unsubscribe modify this object.
@@ -185,8 +190,38 @@ export function createMqttClient(
 
   /**
    * async wrapper around publish
+   * https://github.com/mqttjs/MQTT.js/blob/master/README.md#publish
+   * @param {string} topic
+   * @param {object} message
+   * @param {object} options
    */
-  async function publish(topic, message, options) {}
+  async function publish(topic, message, options) {
+    return new Promise((resolve, reject) => {
+      // guard: prevent attempting to interact with client that does not exist
+      if (!client) {
+        const errorLog = {
+          clientId,
+          username,
+          time: new Date().toISOString,
+          error: error,
+        };
+        console.error(JSON.stringify(errorLog));
+        reject();
+      }
+
+      // otherwise publish message using
+      client.publish(
+        topic,
+        publishSafeMessage,
+        options, // options
+        function onPubAck(err) {
+          // guard: err != null indicates client is disconnecting
+          if (err) reject(err);
+          resolve();
+        }
+      );
+    });
+  }
 
   /**
    *
@@ -197,6 +232,17 @@ export function createMqttClient(
    *
    */
   async function unsubscribe(topic) {}
+
+  /**
+   *
+   */
+  async function logInfo(message) {}
+
+  /**
+   *
+   */
+  async function logError(error) {}
+
 
   /**
    * This factory function returns an object that only exposes methods to configure and connect the client.
@@ -217,24 +263,91 @@ export function createMqttClient(
 
 /**
  * Determine whether a topic filter matches a provided
- * @param {string} subscriptionTopic
- * @param {string} incomingTopic
+ * @param {string} topicFilter
+ * @param {string} topic
  */
-function topicMatchesTopicFilter(topicFilter, topic) {}
+export function topicMatchesTopicFilter(topicFilter, topic) {}
 
 /**
- * Interpreting which topic filter attracting which
- * Useful resource: https://regexr.com/
- * @param {string} mqttTopicFilter
+ * Convert MQTT topic filter wildcards and system symbols into regex
+ * Useful resource for learning: https://regexr.com/
+ * @param {string} topicFilter
  */
-function convertMqttTopicFilterToRegex(topicFilter) {
+export function convertMqttTopicFilterToRegex(topicFilter) {
   // convert single-level wildcard + to .*, or "any character, zero or more repetitions"
-  let regex = mqttTopicFilter.replace(/\+/g, ".*").replace(/\$/g, ".*");
+  let regex = topicFilter.replace(/\+/g, ".*").replace(/\$/g, ".*");
   // convert multi-level wildcard # to .* if it is in a valid position in the topic filter
   if (sub.lastIndexOf("#") == sub.length - 1) {
     regexdSub = regexdSub.substring(0, regexdSub.length - 1).concat(".*");
   }
 }
+
+/**
+ * Attempt to serialize provided message.
+ * Logs and rejects on errors, resolves with publish-safe string on success.
+ * @param {object|string|number|null} message
+ */
+export function serializeMessage(message) {
+  return new Promise((resolve, reject) => {
+    try {
+      // handle non-null objects
+      if (typeof message === "object" && message !== null) {
+        resolve(JSON.stringify(message));
+      }
+
+      // handle numbers
+      if (typeof message === "number") {
+        resolve(message.toString());
+      }
+
+      // handle booleans
+      if (typeof message === "boolean") {
+        resolve(String.valueOf(message));
+      }
+      // handle strings
+      if (typeof message === "string") {
+        resolve(message);
+      }
+
+      // handle null
+      if (message === null) {
+        resolve("");
+      }
+    } catch (err) {
+      /**
+       * if you pass an object to this function that can't be stringified,
+       * this catch block will catch and log the error
+       */
+      reject();
+    }
+  });
+}
+
+function log 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 //  //Iterate over all subscriptions in the subscription map
 //  for (let sub of Array.from(Object.keys(eventHandlers))) {
