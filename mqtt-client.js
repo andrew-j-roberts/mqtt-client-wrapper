@@ -13,22 +13,21 @@ import produce from "immer";
  * @param {string} hostUrl
  * @param {object} options
  */
-export function createMqttClient(
+export function createMqttClient({
   hostUrl = "ws://localhost:8000",
-  // this syntax in the function declaration means destructure the second argument,
-  {
+  options: {
     // assign defaults if the values aren't included in the provided object,
     username = "default",
-    password = "default",
+    password = "",
     clientId = `mqttjs_${Math.random().toString(16).substr(2, 8)}`,
     ...rest
   } = {
     // and default to this object literal if no object is provided.
     username: "default",
-    password: "default",
+    password: "",
     clientId: `mqttjs_${Math.random().toString(16).substr(2, 8)}`,
-  }
-) {
+  },
+}) {
   /**
    * Private reference to the client connection object
    */
