@@ -15,11 +15,18 @@ import produce from "immer";
  */
 export function createMqttClient(
   hostUrl = "ws://localhost:8000",
+  // this syntax in the function declaration means destructure the second argument,
   {
+    // assign defaults if the values aren't included in the provided object,
     username = "default",
-    password = "",
+    password = "default",
     clientId = `mqttjs_${Math.random().toString(16).substr(2, 8)}`,
     ...rest
+  } = {
+    // and default to this object literal if no object is provided.
+    username: "default",
+    password: "default",
+    clientId: `mqttjs_${Math.random().toString(16).substr(2, 8)}`,
   }
 ) {
   /**
@@ -28,7 +35,7 @@ export function createMqttClient(
   let client = null;
 
   /**
-   * Private variable to store topic subscriptions and their associated handler callbacks.
+   * Private map between topic subscriptions and their associated handler callbacks.
    * Messages are dispatched to all topic subscriptions that match the incoming message's topic.
    * subscribe and unsubscribe modify this object.
    */
@@ -104,14 +111,19 @@ export function createMqttClient(
     onEnd = _onEnd;
   }
 
-  // resolve with connected client session object on connack, reject on connection error
+  /**
+   * Overloaded MQTT.js connect method.
+   * Resolves with an extended MQTT.js Client object on receiving a connack,
+   * rejects if there is an error whike connecting.
+   * https://github.com/mqttjs/MQTT.js/blob/master/README.md#connect
+   */
   async function connect() {
     return new Promise((resolve, reject) => {
       client = mqtt.connect(hostUrl, {
+        ...rest,
         username,
         password,
         clientId,
-        ...rest,
       });
       client.on("reconnect", onReconnect);
       client.on("close", onClose);
@@ -156,15 +168,17 @@ export function createMqttClient(
   }
 
   /**
-   * async wrapper around publish
+   * Overloaded MQTT.js Client publish method.
+   * This method will attempt to stringify the message passed to it as an argument,
+   * and will reject if it is unable to either stringify or publish the message.
    * https://github.com/mqttjs/MQTT.js/blob/master/README.md#publish
    * @param {string} topic
-   * @param {object} message
+   * @param {object|string|number|boolean} message
    * @param {object} options
    */
   async function publish(topic, message, options) {
     return new Promise(async (resolve, reject) => {
-      // guard: prevent attempting to interact with client that does not exist
+      // guard: do not try to publish if client is not connected
       if (!client) {
         logError(`Cannot publish, client is not connected`);
         reject();
@@ -198,31 +212,37 @@ export function createMqttClient(
   }
 
   /**
-   *
+   * Overloaded MQTT.js Client subscribe method.
+   * Extends default subscribe behavior by accepting a handler argument
+   * that is called with any incoming messages that match the topic subscription.
+   * https://github.com/mqttjs/MQTT.js/blob/master/README.md#subscribe
+   * @param {string} topic
+   * @param {object} options
+   * @param {any} handler
    */
   async function subscribe(topic, options, handler) {
     return new Promise(async (resolve, reject) => {
-      // guard: prevent attempting to interact with client that does not exist
+      // guard: do not try to subscribe if client has not yet been connected
       if (!client) {
         logError(`Cannot subscribe, client is not connected`);
         reject();
       }
-      // guard: prevent client from attempting to add duplicate event handlers
+      // guard: do not allow duplicate topic subscriptions
       if (topic in subscriptions) {
         logError(`Cannot subscribe, already subscribed to topic ${topic}`);
         reject();
       }
-
-      // add event handler
-      eventHandlers = produce(eventHandlers, (draft) => {
-        draft[topic] = handler;
-      });
 
       // subscribe to topic on client
       client.subscribe(topic, options, function onSubAck(err, granted) {
         // guard: err != null indicates a subscription error or an error that occurs when client is disconnecting
         if (err) reject(err);
         // else, subscription is verified
+
+        // add event handler
+        subscriptions = produce(subscriptions, (draft) => {
+          draft[topic] = handler;
+        });
         console.log(
           `Suback received for topic "${granted[0].topic}" using QOS ${granted[0].qos}`
         );
@@ -232,9 +252,34 @@ export function createMqttClient(
   }
 
   /**
-   *
+   * Overloaded MQTT.js Client unsubscribe method.
+   * Extends default unsubscribe behavior by removing any handlers
+   * that were associated with the topic subscription.
+   * https://github.com/mqttjs/MQTT.js/blob/master/README.md#subscribe
+   * @param {string} topic
+   * @param {object} options
+   * @param {any} handler
    */
-  async function unsubscribe(topic) {}
+  async function unsubscribe(topic) {
+    return new Promise((resolve, reject) => {
+      // guard: do not try to unsubscribe if client has not yet been connected
+      if (!client) {
+        logError(`, client is not connected`);
+        reject();
+      }
+      // remove event handler
+      subscriptions = produce(subscriptions, (draft) => {
+        delete draft[topic];
+      });
+      // unsubscribe from topic on client
+      client.unsubscribe(topic, null, function onUnsubAck(err) {
+        // guard: err != null indicates an error occurs if client is disconnecting
+        if (err) reject(err);
+        // else, unsubscription verified
+        resolve();
+      });
+    });
+  }
 
   /**
    * info level logger
@@ -294,16 +339,16 @@ export function topicMatchesTopicFilter(topicFilter, topic) {
   let topicFilterRegex = convertMqttTopicFilterToRegex(topicFilter);
   let match = topic.match(topicFilterRegex);
 
-  // if the match index starts at 0, then the topic is a match with the topic filter
+  // if the match index starts at 0, the topic matches the topic filter
   if (match && matched.index == 0) {
-    // guard: check edge case where the pattern is a match but the last character is a *
+    // guard: check edge case where the pattern is a match but the last character is *
     if (topicFilterRegex.lastIndexOf("*") == topic.length - 1) {
       // if the number of topic sections are not equal, the match is a false positive
       if (topicFilterRegex.split("/").length != topic.split("/").length) {
         return false;
       }
     }
-    // if no edge case guards return early, this indicates the match is genuine
+    // if no edge case guards return early, the match is genuine
     return true;
   }
 

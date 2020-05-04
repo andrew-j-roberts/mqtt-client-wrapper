@@ -4,8 +4,9 @@
   "description": "A modestly opinionated wrapper for [MQTT.js](https://github.com/mqttjs/MQTT.js) that exposes an API for configuring message dispatch and client lifecycle event handlers.",
   "main": "index.js",
   "scripts": {
-    "dev": "parcel index.html",
-    "build": "parcel build index.html"
+    "test-local": "nodemon --exec babel-node local-broker-test.js",
+    "test-unit": "jest mqtt-client.test.js",
+    "test-watch": "nodemon --watch src --exec yarn run test"
   },
   "author": "Andrew Roberts",
   "license": "ISC",
@@ -16,10 +17,10 @@
     "regenerator-runtime": "^0.13.3"
   },
   "devDependencies": {
-    "@babel/core": "^7.9.0",
+    "@babel/cli": "^7.8.4",
+    "@babel/core": "^7.9.6",
+    "@babel/node": "^7.8.7",
     "@babel/preset-env": "^7.8.7",
-    "@babel/preset-react": "^7.9.4",
-    "parcel-bundler": "^1.12.4",
-    "tailwindcss": "^1.2.0"
+    "babel-jest": "^26.0.0"
   }
 }
