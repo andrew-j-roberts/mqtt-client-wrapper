@@ -288,7 +288,7 @@ export function createMqttClient({
     const log = {
       clientId,
       username,
-      time: new Date().toISOString,
+      time: new Date().toISOString(),
       msg: message,
     };
     console.log(JSON.stringify(log));
@@ -302,7 +302,7 @@ export function createMqttClient({
     const errorLog = {
       clientId,
       username,
-      time: new Date().toISOString,
+      time: new Date().toISOString(),
       error: error,
     };
     console.error(JSON.stringify(errorLog));
